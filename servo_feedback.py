@@ -126,6 +126,7 @@ class ServoFeedback:
         # Initialise PWM at 50 Hz.  duty_ns is used throughout because it
         # maps directly to servo pulse width without floating-point arithmetic.
         self._pwm = PWM(pwm_pin, freq=50)
+        self._write_duty_ns = self._pwm.duty_ns
 
         # State machine
         self._state           = _ST_IDLE
