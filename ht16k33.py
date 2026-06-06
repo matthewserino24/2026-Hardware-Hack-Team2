@@ -258,10 +258,9 @@ class HT16K33:
         """
         fmt = "{:.{}f}".format(value, decimal_places)
 
-        # Count significant digit characters (excluding '-' and '.') to check
-        # whether the value fits on a 4-digit display.
-        sig_digits = sum(1 for c in fmt if c.isdigit())
-        if sig_digits > 4:
+        # Count characters that consume a digit position (everything except '.')
+        display_chars = sum(1 for c in fmt if c != '.')
+        if display_chars > 4:
             self.print_str("----")
             return
 
