@@ -154,9 +154,11 @@ def run(max_iters=None):
     """
     display, temp_sensor, imu, sonar, detector, servo, nav_route = startup()
 
-    # Cadence timestamps (initialised to trigger immediately on first pass)
-    last_sonar_ms = utime.ticks_ms() - _SONAR_CADENCE_MS
-    last_temp_ms  = utime.ticks_ms() - _TEMP_CADENCE_MS
+    # Cadence timestamps (initialised to trigger immediately on first pass).
+    # Use ticks_add (NOT plain subtraction): MicroPython tick values wrap, and
+    # only ticks_add/ticks_diff are defined across the wrap boundary.
+    last_sonar_ms = utime.ticks_add(utime.ticks_ms(), -_SONAR_CADENCE_MS)
+    last_temp_ms  = utime.ticks_add(utime.ticks_ms(), -_TEMP_CADENCE_MS)
 
     # IMU dt tracking
     last_imu_ms   = utime.ticks_ms()

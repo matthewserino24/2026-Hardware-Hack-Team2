@@ -39,6 +39,13 @@ _ARRIVAL_HOLD_MS       = 500
 _MAX_STEER_DEG         = 60.0
 # Proportional gain: servo_angle = Kp × heading_error (clamped to ±MAX_STEER)
 _KP                    = 0.8
+# Direction sign that maps "which way to turn" onto the servo deflection.
+# Conventions in this codebase: IMU heading is +CCW (a left turn increases it),
+# and ServoFeedback uses +angle = deflect right.  So to cue a LEFT turn we need
+# a NEGATIVE servo angle -> _STEER_SIGN = -1.
+# BENCH CHECK: if the servo cues the opposite way from the intended turn on the
+# real device (e.g. gyro mounted inverted), flip this to +1.
+_STEER_SIGN            = -1
 
 
 def _heading_error(current_deg, target_deg):
@@ -126,11 +133,13 @@ class Route:
             return
 
         wp = self._waypoints[self._index]
-        # Wrap-aware signed error: positive → target is to the right (CW).
+        # Wrap-aware signed error.  With IMU +CCW, a positive error means the
+        # target heading is further CCW than we are, i.e. we must turn LEFT.
         error = _heading_error(imu_heading, wp.heading)
 
-        # Proportional steering (clamped).  Deflect toward the target.
-        steer = _KP * error
+        # Proportional steering (clamped).  _STEER_SIGN maps the turn direction
+        # onto the servo's +right / -left deflection convention.
+        steer = _STEER_SIGN * _KP * error
         if steer >  _MAX_STEER_DEG:
             steer =  _MAX_STEER_DEG
         elif steer < -_MAX_STEER_DEG:
