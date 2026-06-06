@@ -1,0 +1,43 @@
+# Build / cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+
+# Test artifacts
+tests/
+test/
+*_test.py
+test_*.py
+*.log
+
+# Documentation and source material that should not be uploaded
+*.pdf
+*.doc
+*.docx
+*.ppt
+*.pptx
+*.xls
+*.xlsx
+
+# Local workspace / agent metadata
+.seb/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+restored_from_stash/
+
+# MicroPython / firmware build outputs
+build/
+dist/
+*.bin
+*.elf
+*.hex
+*.map
+
