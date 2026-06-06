@@ -219,7 +219,7 @@ class ServoFeedback:
         self._state = _ST_DANGER_MOVE
         self._phase_start = utime.ticks_ms()
 
-    def tick(self):
+    def tick(self, timer=None):
         """Advance the state machine.  Call this periodically (≤ 60 ms apart).
 
         Safe to call from a MicroPython timer ISR on STM32 — no heap
