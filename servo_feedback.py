@@ -184,6 +184,10 @@ class ServoFeedback:
         distance_cm : float | int
             Current obstacle distance in centimetres.
         """
+        if distance_cm is None:
+            self.neutral()
+            return
+
         warn_ms   = config.WARNING_TAP_INTERVAL_MS
         danger_ms = config.DANGER_TAP_INTERVAL_MS
 
