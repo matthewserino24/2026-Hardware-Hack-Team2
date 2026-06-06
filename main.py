@@ -1,8 +1,8 @@
 """
-Main MicroPython entry point for the ZH base hardware framework demo.
+Top-level MicroPython entry point for the ZH base hardware framework.
 
-This keeps the remote main-branch startup flow and application logic while
-using the cleaned-up driver modules from this branch.
+This keeps the latest main-branch startup and loop behavior while remaining
+compatible with the framework driver layout in this branch.
 """
 
 import utime
@@ -10,8 +10,8 @@ from machine import I2C, Pin
 
 import config
 from ht16k33 import HT16K33
-from mcp9808 import MCP9808
 from imu import IMU
+from mcp9808 import MCP9808
 from obstacle import CLEAR, DANGER, WARNING, ObstacleDetector
 from route import Route, Waypoint
 from servo_feedback import ServoFeedback
@@ -45,10 +45,14 @@ def startup():
 
     display.print_str("CAL ")
     display.show()
-    imu = IMU(i2c)
+    imu = IMU(i2c, addr=config.MPU6050_ADDR)
     imu.calibrate()
 
-    sonar = HCSR04(config.HCSR04_TRIG_PIN, config.HCSR04_ECHO_PIN)
+    sonar = HCSR04(
+        trig_pin=config.HCSR04_TRIG_PIN,
+        echo_pin=config.HCSR04_ECHO_PIN,
+    )
+
     servo = ServoFeedback(config.SG90_PWM_PIN)
     servo.neutral()
 
@@ -64,19 +68,20 @@ def startup():
 
 def run(max_iters=None):
     """
-    Main non-blocking event loop.
+    Run the main loop.
 
     Parameters
     ----------
     max_iters : int or None
         Run forever when None. When set, stop after the requested number of
-        iterations. This is useful for host-side testing.
+        loop iterations. Useful for host-side testing.
     """
     display, temp_sensor, imu, sonar, detector, servo, nav_route = startup()
 
-    last_sonar_ms = utime.ticks_ms() - _SONAR_CADENCE_MS
-    last_temp_ms = utime.ticks_ms() - _TEMP_CADENCE_MS
+    last_sonar_ms = utime.ticks_add(utime.ticks_ms(), -_SONAR_CADENCE_MS)
+    last_temp_ms = utime.ticks_add(utime.ticks_ms(), -_TEMP_CADENCE_MS)
     last_imu_ms = utime.ticks_ms()
+
     obstacle_state = CLEAR
     last_temp_c = 0.0
 
@@ -94,6 +99,7 @@ def run(max_iters=None):
             last_sonar_ms = now
             prev_obstacle = obstacle_state
             obstacle_state = detector.update(sonar.distance_cm())
+
             if obstacle_state != prev_obstacle:
                 if obstacle_state == DANGER:
                     servo.danger_pattern()

@@ -46,6 +46,17 @@ class TestStructure(unittest.TestCase):
             except py_compile.PyCompileError as e:  # noqa: PERF203
                 self.fail("{}.py does not compile: {}".format(mod, e))
 
+    def test_config_pins_use_cpu_names_not_arduino_labels(self):
+        # machine.Pin on the STM32 port resolves CPU names ('PA8') but not
+        # Arduino labels ('D7'); the latter would crash Pin() on the board.
+        import config
+        for name in ("HCSR04_TRIG_PIN", "HCSR04_ECHO_PIN", "SG90_PWM_PIN",
+                     "I2C_SCL_PIN", "I2C_SDA_PIN"):
+            val = getattr(config, name)
+            self.assertRegex(
+                val, r"^P[A-H]\d{1,2}$",
+                "{}={!r} is not a CPU pin name (expected e.g. 'PA8')".format(name, val))
+
     def test_no_duplicate_definitions(self):
         import ast
         offenders = {}
@@ -112,6 +123,27 @@ class TestIntegration(unittest.TestCase):
         mockhw.set_sim_distance_cm(10.0)      # inside DANGER entry (20 cm)
         # Should run cleanly and drive the danger feedback path.
         main.run(max_iters=50)
+
+    def test_steering_cues_toward_the_turn_direction(self):
+        # IMU +heading = CCW = left; servo +angle = right.
+        # A LEFT waypoint (+45) at heading 0 must command a LEFT (negative) servo
+        # angle, and a RIGHT waypoint (-45) a RIGHT (positive) angle.
+        import route
+
+        class _Servo:
+            def __init__(self): self.last = None
+            def neutral(self): self.last = 0.0
+            def steer(self, a): self.last = a
+
+        left = _Servo()
+        r = route.Route([route.Waypoint(45.0, "Left 45")])
+        r.tick(0.0, left)
+        self.assertLess(left.last, 0.0, "left waypoint should cue a left (negative) deflection")
+
+        right = _Servo()
+        r = route.Route([route.Waypoint(-45.0, "Right 45")])
+        r.tick(0.0, right)
+        self.assertGreater(right.last, 0.0, "right waypoint should cue a right (positive) deflection")
 
     def test_route_completes_when_heading_holds_on_target(self):
         # Single forward waypoint at heading 0; with zero gyro the heading

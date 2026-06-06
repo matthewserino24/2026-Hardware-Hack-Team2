@@ -44,9 +44,14 @@ Modules and their roles:
 
 Data flow is one-directional: sensors → classifier/state machine → servo + display. The three I2C devices (0x68/0x18/0x70) share I2C1 (PB8/PB9) and don't collide.
 
-## config.py — gotcha
+## config.py
 
-[config.py](config.py) holds tunable constants, but it **still contains many duplicated definitions** of the same name (e.g. `SERVO_*`, `WARNING_DISTANCE_CM`, `I2C_BUS`, plus a stray triple-quoted block). Python's last-assignment-wins means the duplicates currently agree on values, but when changing one, search the whole file and edit the **final** occurrence or your edit is silently overwritten. Only `main.py` reads config (pin/address constants); the driver modules take their parameters via constructor args. Consolidating these duplicates is a safe, worthwhile cleanup.
+[config.py](config.py) holds the pin/bus/address constants and is the **only** file that `main.py` reads from (the driver modules take their parameters via constructor args). It was de-duplicated during the hardware audit and now has one definition per name. Two things to keep correct:
+
+- **Use CPU pin names** (`'PA8'`, `'PB10'`), never Arduino labels (`'D7'`): `machine.Pin('D7')` raises `ValueError` on the STM32 port and would stop boot.
+- Obstacle thresholds are **not** here — they are constructor defaults in `obstacle.ObstacleDetector` (danger 20/25 cm, warning 60/65 cm). Tune them there or pass explicit args in `main.startup()`.
+
+Before flashing to the board, work through [HARDWARE_BRINGUP.md](HARDWARE_BRINGUP.md) — it lists the electrical (5 V echo divider, servo rail), build (PWM/`duty_ns`, I2C signature), and calibration (gyro sign → `route._STEER_SIGN`) checks that the host tests can't cover.
 
 ## Hardware constraints to respect in code
 

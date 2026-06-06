@@ -40,6 +40,9 @@ class _Clock:
     def ticks_diff(self, a, b):
         return a - b
 
+    def ticks_add(self, t, delta):
+        return t + delta
+
     def sleep_ms(self, n):
         self.ms += int(n)
 
@@ -194,6 +197,7 @@ def install():
     utime.ticks_ms = CLOCK.ticks_ms
     utime.ticks_us = CLOCK.ticks_us
     utime.ticks_diff = CLOCK.ticks_diff
+    utime.ticks_add = CLOCK.ticks_add
     utime.sleep_ms = CLOCK.sleep_ms
     utime.sleep_us = CLOCK.sleep_us
     utime.sleep = CLOCK.sleep
@@ -210,6 +214,7 @@ def install():
     fake_time.ticks_ms = CLOCK.ticks_ms
     fake_time.ticks_us = CLOCK.ticks_us
     fake_time.ticks_diff = CLOCK.ticks_diff
+    fake_time.ticks_add = CLOCK.ticks_add
     fake_time.sleep_ms = CLOCK.sleep_ms
     fake_time.sleep_us = CLOCK.sleep_us
     sys.modules["time"] = fake_time
