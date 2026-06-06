@@ -37,7 +37,7 @@
 #       import machine
 #       timer = machine.Timer()
 #       timer.init(period=10, mode=machine.Timer.PERIODIC,
-#                  callback=lambda t: fb.tick())
+#                  callback=fb.tick)
 #
 # NON-BLOCKING DESIGN
 # -------------------
