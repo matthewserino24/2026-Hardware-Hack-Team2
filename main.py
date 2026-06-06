@@ -104,7 +104,9 @@ def run():
         if intent == FINISHED:
             # Route complete — hold neutral (optionally play success pattern)
             if FINISH_SUCCESS_PATTERN:
-                servo.success_sweep()
+                if not success_played:
+                    servo.success_sweep()
+                    success_played = True
             else:
                 servo.neutral()
             # Stay in finished state; do not break so the device stays alive
