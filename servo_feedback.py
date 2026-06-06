@@ -1,148 +1,139 @@
-"""
-SG90 servo feedback driver.
-
-This merged version supports:
-- blocking feedback patterns used by the latest main branch
-- non-blocking tap helpers kept from the local framework branch
-"""
+# servo_feedback.py
+# SG90 micro-servo driver with haptic-style feedback patterns.
+#
+# Hardware notes (SG90 datasheet):
+#   - Signal: 50 Hz PWM (20 ms period)
+#   - Pulse width: 500 µs (−90°) … 1500 µs (0°) … 2400 µs (+90°)
+#   - Dead-band: 10 µs — do not update faster than the servo can respond
+#   - Operating voltage: 4.8 V (use a separate 5 V rail, not MCU 3.3 V)
+#   - Current: up to 500 mA stall — must NOT be powered from MCU pin
+#
+# STM32G4 PWM:
+#   machine.PWM(pin, freq=50) uses a hardware timer channel.
+#   duty_ns() sets the on-time in nanoseconds (MicroPython ≥1.20).
+#
+# Angle convention:
+#   0°   → centre (1500 µs)
+#   +90° → full right (2400 µs)
+#   −90° → full left  ( 500 µs)
+#
+# Feedback patterns:
+#   warning_pulse()  – single 20° sweep left/right (non-blocking via state)
+#   danger_pattern() – rapid 3× centre→right→centre sweep
+#   neutral()        – return to 0° and hold
+#
+# Usage::
+#
+#     from machine import Pin
+#     from servo_feedback import ServoFeedback
+#
+#     servo = ServoFeedback('PA0')
+#     servo.set_angle(45)
+#     servo.neutral()
 
 import utime
 from machine import Pin, PWM
 
-import config
+# SG90 pulse width limits (nanoseconds)
+_PULSE_MIN_NS  =  500_000   # −90°  (500 µs)
+_PULSE_MID_NS  = 1_500_000  #   0°  (1500 µs)
+_PULSE_MAX_NS  = 2_400_000  # +90°  (2400 µs)
+_PWM_FREQ_HZ   = 50         # 20 ms period
 
-_TAP_HOLD_MS = 60
+# Derived: ns per degree
+_NS_PER_DEG    = (_PULSE_MAX_NS - _PULSE_MIN_NS) / 180.0   # ≈ 10 555 ns/°
 
 
-def _angle_to_ns(deg):
-    deg = max(0, min(180, int(deg)))
-    pulse_us = config.SG90_MIN_US + (
-        (config.SG90_MAX_US - config.SG90_MIN_US) * deg
-    ) // 180
-    return pulse_us * 1000
+def _angle_to_ns(angle_deg):
+    """Convert angle (−90 … +90) to pulse width in nanoseconds."""
+    angle_deg = max(-90.0, min(90.0, float(angle_deg)))
+    return int(_PULSE_MID_NS + angle_deg * _NS_PER_DEG)
 
 
 class ServoFeedback:
+    """
+    SG90 servo driver with blocking feedback sweep patterns.
+
+    Parameters
+    ----------
+    pin : str or int
+        PWM-capable pin name (e.g. 'PA0', 'D3').
+    """
+
     def __init__(self, pin):
-        self._pin = Pin(pin) if isinstance(pin, str) else pin
-        self._pwm = PWM(self._pin, freq=config.SG90_FREQ_HZ)
-        self._angle = float(config.SERVO_NEUTRAL)
-        self._state = "IDLE"
-        self._phase_start = utime.ticks_ms()
-        self._tap_target = config.SERVO_NEUTRAL
-        self._danger_side = 0
-        self._warn_interval_ms = config.WARNING_TAP_INTERVAL_MS
+        self._pwm = PWM(Pin(pin), freq=_PWM_FREQ_HZ)
+        self._angle = 0.0
         self.neutral()
 
+    # ------------------------------------------------------------------
+    # Basic control
+    # ------------------------------------------------------------------
+
     def set_angle(self, angle_deg):
-        self._angle = max(0.0, min(180.0, float(angle_deg)))
+        """
+        Move servo to angle_deg (−90 … +90).
+
+        Parameters
+        ----------
+        angle_deg : float  Target angle in degrees.
+        """
+        self._angle = max(-90.0, min(90.0, float(angle_deg)))
         self._pwm.duty_ns(_angle_to_ns(self._angle))
+
+    def neutral(self):
+        """Return servo to centre position (0°)."""
+        self.set_angle(0.0)
 
     @property
     def angle(self):
+        """Current commanded angle in degrees."""
         return self._angle
 
-    def neutral(self):
-        self._state = "IDLE"
-        self.set_angle(config.SERVO_NEUTRAL)
-
-    def stop(self):
-        self.neutral()
-
-    def steer(self, heading_error_deg):
-        target = config.SERVO_NEUTRAL + heading_error_deg
-        self.set_angle(target)
-
-    def tap_left(self):
-        self._tap_target = config.SERVO_LEFT_TAP
-        self._start_single_tap()
-
-    def tap_right(self):
-        self._tap_target = config.SERVO_RIGHT_TAP
-        self._start_single_tap()
+    # ------------------------------------------------------------------
+    # Feedback patterns (blocking — keep durations short)
+    # ------------------------------------------------------------------
 
     def warning_pulse(self):
-        self.set_angle(config.SERVO_LEFT_TAP)
+        """
+        Single left/right sweep to signal a WARNING condition.
+        Total duration: ~300 ms.
+        """
+        self.set_angle(-20.0)
         utime.sleep_ms(150)
-        self.set_angle(config.SERVO_RIGHT_TAP)
+        self.set_angle(20.0)
         utime.sleep_ms(150)
         self.neutral()
 
-    def warning_pattern(self, distance_cm):
-        if distance_cm is None:
-            self.neutral()
-            return
-
-        warn_ms = config.WARNING_TAP_INTERVAL_MS
-        danger_ms = config.DANGER_TAP_INTERVAL_MS
-        t = (75.0 - float(distance_cm)) / 35.0
-        t = max(0.0, min(1.0, t))
-        self._warn_interval_ms = int(warn_ms + t * (danger_ms - warn_ms))
-
-        if self._state not in ("WARN_WAIT", "WARN_MOVE", "WARN_HOLD", "WARN_RETURN"):
-            self._danger_side = 0
-            self._state = "WARN_WAIT"
-            self._phase_start = utime.ticks_ms()
-
     def danger_pattern(self):
+        """
+        Rapid 3× centre→right→centre sweep to signal DANGER.
+        Total duration: ~600 ms.
+        """
         for _ in range(3):
-            self.set_angle(config.SERVO_RIGHT_TAP)
+            self.set_angle(45.0)
             utime.sleep_ms(100)
             self.neutral()
             utime.sleep_ms(100)
 
-    def tick(self, timer=None):
-        del timer
-        now = utime.ticks_ms()
-        elapsed = utime.ticks_diff(now, self._phase_start)
+    def steer(self, heading_error_deg):
+        """
+        Proportional steering: map heading error to servo angle.
 
-        if self._state == "IDLE":
-            return
+        A positive heading_error means the target is to the right;
+        the servo deflects right to steer toward it.
 
-        if self._state == "TAP_MOVE" and elapsed >= _TAP_HOLD_MS:
-            self._state = "TAP_HOLD"
-            self._phase_start = now
-            return
+        Parameters
+        ----------
+        heading_error_deg : float
+            Signed heading error in degrees (target − current).
+            Clamped to ±90° servo range.
+        """
+        self.set_angle(heading_error_deg)
 
-        if self._state == "TAP_HOLD" and elapsed >= _TAP_HOLD_MS:
-            self.set_angle(config.SERVO_NEUTRAL)
-            self._state = "TAP_RETURN"
-            self._phase_start = now
-            return
-
-        if self._state == "TAP_RETURN" and elapsed >= _TAP_HOLD_MS:
-            self._state = "IDLE"
-            return
-
-        if self._state == "WARN_WAIT" and elapsed >= self._warn_interval_ms:
-            if self._danger_side == 0:
-                self.set_angle(config.SERVO_LEFT_TAP)
-            else:
-                self.set_angle(config.SERVO_RIGHT_TAP)
-            self._danger_side ^= 1
-            self._state = "WARN_MOVE"
-            self._phase_start = now
-            return
-
-        if self._state == "WARN_MOVE" and elapsed >= _TAP_HOLD_MS:
-            self._state = "WARN_HOLD"
-            self._phase_start = now
-            return
-
-        if self._state == "WARN_HOLD" and elapsed >= _TAP_HOLD_MS:
-            self.set_angle(config.SERVO_NEUTRAL)
-            self._state = "WARN_RETURN"
-            self._phase_start = now
-            return
-
-        if self._state == "WARN_RETURN" and elapsed >= _TAP_HOLD_MS:
-            self._state = "WARN_WAIT"
-            self._phase_start = now
+    # ------------------------------------------------------------------
+    # Cleanup
+    # ------------------------------------------------------------------
 
     def deinit(self):
+        """Release the PWM timer channel."""
         self._pwm.deinit()
-
-    def _start_single_tap(self):
-        self.set_angle(self._tap_target)
-        self._state = "TAP_MOVE"
-        self._phase_start = utime.ticks_ms()

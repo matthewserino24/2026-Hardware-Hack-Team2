@@ -1,18 +1,33 @@
 # config.py
-# Central pin, bus, and address configuration for the STM32G474RE
-# MicroPython hardware framework.
+# Central pin / bus / address configuration for the 2026 Hardware Hack Team2
+# wrist-navigation prototype.  Target: NUCLEO-G474RE running MicroPython.
 #
-# Use CPU pin names instead of Arduino header labels because MicroPython on
-# STM32 reliably resolves names like 'PA8' and 'PB10'.
+# IMPORTANT — pin names:
+#   The MicroPython STM32 port resolves *CPU* pin names ('PA8', 'PB10', ...).
+#   It does NOT reliably resolve Arduino-header labels ('D6', 'D7', ...) unless
+#   the board build defines them, so machine.Pin('D7') typically raises
+#   ValueError.  All pins below therefore use CPU names; the Arduino label is
+#   kept in the comment for wiring reference only.
+#
+# Pin map (NUCLEO-G474RE):
+#   I2C1 SCL      PB8   (Arduino D15 / CN10-3)   shared by all 3 I2C devices
+#   I2C1 SDA      PB9   (Arduino D14 / CN10-5)
+#   HC-SR04 TRIG  PA8   (Arduino D7)  GPIO out, 10 us trigger pulse
+#   HC-SR04 ECHO  PA9   (Arduino D8)  GPIO in,  via 5V->3.3V divider (see ultrasonic.py)
+#   SG90 PWM      PB10  (Arduino D6)  TIM2_CH3, 50 Hz
+#
+# I2C device addresses (7-bit):
+#   MPU-6050  0x68  (AD0 tied low)
+#   MCP9808   0x18  (A2=A1=A0=0)
+#   HT16K33   0x70  (A2=A1=A0=0)
 
 # ---------------------------------------------------------------------------
 # I2C bus
 # ---------------------------------------------------------------------------
-I2C_ID = 1
-I2C_BUS = I2C_ID
-I2C_FREQ = 400_000
-I2C_SCL_PIN = "PB8"
-I2C_SDA_PIN = "PB9"
+I2C_ID   = 1          # STM32 I2C peripheral index -> I2C1 (PB8/PB9)
+I2C_FREQ = 400_000    # 400 kHz Fast-mode (all three devices support it)
+I2C_SCL_PIN = 'PB8'
+I2C_SDA_PIN = 'PB9'
 
 # ---------------------------------------------------------------------------
 # I2C device addresses (7-bit)
@@ -24,52 +39,17 @@ HT16K33_ADDR = 0x70
 # ---------------------------------------------------------------------------
 # HC-SR04 ultrasonic sensor
 # ---------------------------------------------------------------------------
-HCSR04_TRIG_PIN = "PA8"
-HCSR04_ECHO_PIN = "PA9"
-HCSR04_TIMEOUT_US = 30_000
-HCSR04_CYCLE_MS = 60
-ULTRASONIC_SAMPLE_INTERVAL_MS = 150
-SMOOTHING_WINDOW = 5
+HCSR04_TRIG_PIN = 'PA8'   # GPIO output, 10 us trigger pulse
+HCSR04_ECHO_PIN = 'PA9'   # GPIO input, echo width proportional to distance
 
 # ---------------------------------------------------------------------------
-# SG90 servo / haptic feedback
+# SG90 servo (haptic feedback)
 # ---------------------------------------------------------------------------
-SG90_PWM_PIN = "PB10"
-SERVO_PIN = SG90_PWM_PIN
-SG90_FREQ_HZ = 50
-SERVO_FREQ_HZ = SG90_FREQ_HZ
-SG90_MIN_US = 500
-SG90_MID_US = 1500
-SG90_MAX_US = 2400
-SERVO_MIN_US = SG90_MIN_US
-SERVO_MID_US = SG90_MID_US
-SERVO_MAX_US = SG90_MAX_US
-SERVO_NEUTRAL = 90
-SERVO_LEFT_TAP = 60
-SERVO_RIGHT_TAP = 120
-WARNING_TAP_INTERVAL_MS = 400
-DANGER_TAP_INTERVAL_MS = 120
+# 50 Hz PWM (20 ms period); pulse width 500 us (-90) .. 1500 us (0) .. 2400 us (+90).
+# Must be a timer-channel-capable pin; PB10 = TIM2_CH3 on the G474.
+SG90_PWM_PIN = 'PB10'
 
-# ---------------------------------------------------------------------------
-# Speaker
-# ---------------------------------------------------------------------------
-SPEAKER_PIN = "PB4"
-
-# ---------------------------------------------------------------------------
-# IMU
-# ---------------------------------------------------------------------------
-IMU_GYRO_FS = 250
-IMU_CALIBRATION_MS = 2000
-IMU_SAMPLE_INTERVAL_MS = 20
-CALIBRATION_SAMPLES = IMU_CALIBRATION_MS // IMU_SAMPLE_INTERVAL_MS
-
-# ---------------------------------------------------------------------------
-# Route / app
-# ---------------------------------------------------------------------------
-HEADING_TOLERANCE_DEG = 15
-LOOP_PERIOD_MS = 20
-FINISH_SUCCESS_PATTERN = False
-
-# Legacy obstacle thresholds kept for compatibility with older code paths.
-WARNING_DISTANCE_CM = 75
-DANGER_DISTANCE_CM = 40
+# NOTE on obstacle thresholds: the CLEAR/WARNING/DANGER distances and their
+# hysteresis live as constructor defaults in obstacle.ObstacleDetector
+# (danger 20/25 cm, warning 60/65 cm).  Tune them there, or pass explicit
+# values when constructing the detector in main.startup().
