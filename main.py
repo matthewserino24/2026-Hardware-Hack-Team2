@@ -24,6 +24,7 @@ from config import (
     SERVO_PIN,
     LOOP_PERIOD_MS,
     FINISH_SUCCESS_PATTERN,
+    ULTRASONIC_SAMPLE_INTERVAL_MS,
 )
 
 from imu            import IMU
