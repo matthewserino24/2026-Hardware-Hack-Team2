@@ -167,9 +167,10 @@ def run():
 
         # ── IMU update (every iteration) ─────────────────────────────────
         dt_ms = utime.ticks_diff(now, last_imu_ms)
-        last_imu_ms = now
-        dt_s = dt_ms / 1000.0
-        imu.update(dt_s)
+        if dt_ms > 0:
+            last_imu_ms = now
+            dt_s = dt_ms / 1000.0
+            imu.update(dt_s)
 
         # ── HC-SR04 read (≥60 ms cadence) ────────────────────────────────
         if utime.ticks_diff(now, last_sonar_ms) >= _SONAR_CADENCE_MS:

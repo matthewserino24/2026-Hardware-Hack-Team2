@@ -98,9 +98,10 @@ class ObstacleDetector:
         state = self._state
 
         if state == CLEAR:
-            if distance_cm <= self._w_entry:
+            if distance_cm <= self._d_entry:
+                state = DANGER
+            elif distance_cm <= self._w_entry:
                 state = WARNING
-            # (no direct CLEAR→DANGER jump; WARNING is the intermediate)
 
         if state == WARNING:
             if distance_cm <= self._d_entry:

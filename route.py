@@ -117,7 +117,7 @@ class Route:
         error = wp.heading - imu_heading   # positive → need to turn CCW
 
         # Proportional steering (clamped)
-        steer = _KP * error
+        steer = -_KP * error
         if steer >  _MAX_STEER_DEG:
             steer =  _MAX_STEER_DEG
         elif steer < -_MAX_STEER_DEG:
