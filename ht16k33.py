@@ -225,16 +225,18 @@ class HT16K33:
 
         negative = value < 0
         value = abs(value)
-        digits = "{:04d}".format(value) if not pad else "{:>4d}".format(value)
-
         if negative:
-            # Replace the leading space/zero with a minus sign
-            digits = list(digits)
-            for k in range(4):
-                if digits[k] != ' ':
-                    digits[k - 1] = '-'
-                    break
-            digits = ''.join(digits)
+            if not pad:
+                digits = "-{:03d}".format(value)
+            else:
+                digits = list("{:>4d}".format(value))
+                for k in range(4):
+                    if digits[k] != ' ':
+                        digits[k - 1] = '-'
+                        break
+                digits = ''.join(digits)
+        else:
+            digits = "{:04d}".format(value) if not pad else "{:>4d}".format(value)
 
         self.print_str(digits)
 
