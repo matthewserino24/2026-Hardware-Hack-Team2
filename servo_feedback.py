@@ -322,7 +322,7 @@ class ServoFeedback:
 
     def _write_angle(self, deg):
         """Write a servo angle (0–180°) via duty_ns.  No allocation."""
-        self._pwm.duty_ns(_angle_to_ns(deg))
+        self._write_duty_ns(_angle_to_ns(deg))
 
     def _start_single_tap(self):
         """Begin the single-tap sub-sequence (move → hold → return → idle)."""
