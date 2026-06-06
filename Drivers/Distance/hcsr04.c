@@ -61,16 +61,13 @@ Status_t HCSR04_ReadDistanceCm(float *distance_cm)
         return STATUS_ERROR;
     }
 
-    /*
-     * Real hardware flow:
-     * 1. Send 10 us TRIG pulse
-     * 2. Wait for ECHO rising edge and capture start time
-     * 3. Wait for ECHO falling edge and capture end time
-     * 4. Convert pulse width to distance
-     *
-     * This skeleton keeps the capture bookkeeping in place so the HAL timer
-     * callback can be wired in later without changing the driver API.
-     */
+    uint32_t start_us = BSP_Timer_GetMicros();
+    while ((s_echo_falling_us <= s_echo_rising_us) &&
+           ((BSP_Timer_GetMicros() - start_us) < s_config.timeout_us))
+    {
+        /* Wait for the ISR/callback path to capture the echo pulse. */
+    }
+
     if (s_echo_falling_us <= s_echo_rising_us)
     {
         return STATUS_TIMEOUT;

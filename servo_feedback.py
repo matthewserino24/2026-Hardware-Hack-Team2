@@ -2,7 +2,7 @@
 SG90 servo feedback driver.
 
 This merged version supports:
-- blocking feedback patterns used by the latest main branch
+- non-blocking warning and danger feedback used by the latest main branch
 - non-blocking tap helpers kept from the local framework branch
 """
 
@@ -31,6 +31,7 @@ class ServoFeedback:
         self._phase_start = utime.ticks_ms()
         self._tap_target = config.SERVO_NEUTRAL
         self._danger_side = 0
+        self._pulse_count = 0
         self._warn_interval_ms = config.WARNING_TAP_INTERVAL_MS
         self.neutral()
 
@@ -62,11 +63,9 @@ class ServoFeedback:
         self._start_single_tap()
 
     def warning_pulse(self):
-        self.set_angle(config.SERVO_LEFT_TAP)
-        utime.sleep_ms(150)
-        self.set_angle(config.SERVO_RIGHT_TAP)
-        utime.sleep_ms(150)
-        self.neutral()
+        self._danger_side = 0
+        self._state = "WARN_PULSE_WAIT"
+        self._phase_start = utime.ticks_ms()
 
     def warning_pattern(self, distance_cm):
         if distance_cm is None:
@@ -85,11 +84,11 @@ class ServoFeedback:
             self._phase_start = utime.ticks_ms()
 
     def danger_pattern(self):
-        for _ in range(3):
-            self.set_angle(config.SERVO_RIGHT_TAP)
-            utime.sleep_ms(100)
-            self.neutral()
-            utime.sleep_ms(100)
+        self._danger_side = 0
+        self._state = "DANGER_PULSE_MOVE"
+        self._phase_start = utime.ticks_ms()
+        self._pulse_count = 0
+        self.set_angle(config.SERVO_RIGHT_TAP)
 
     def tick(self, timer=None):
         del timer
@@ -138,6 +137,38 @@ class ServoFeedback:
         if self._state == "WARN_RETURN" and elapsed >= _TAP_HOLD_MS:
             self._state = "WARN_WAIT"
             self._phase_start = now
+
+        if self._state == "WARN_PULSE_WAIT" and elapsed >= _TAP_HOLD_MS:
+            self.set_angle(config.SERVO_LEFT_TAP)
+            self._state = "WARN_PULSE_LEFT"
+            self._phase_start = now
+            return
+
+        if self._state == "WARN_PULSE_LEFT" and elapsed >= 150:
+            self.set_angle(config.SERVO_RIGHT_TAP)
+            self._state = "WARN_PULSE_RIGHT"
+            self._phase_start = now
+            return
+
+        if self._state == "WARN_PULSE_RIGHT" and elapsed >= 150:
+            self.neutral()
+            return
+
+        if self._state == "DANGER_PULSE_MOVE" and elapsed >= 100:
+            self.neutral()
+            self._state = "DANGER_PULSE_RETURN"
+            self._phase_start = now
+            return
+
+        if self._state == "DANGER_PULSE_RETURN" and elapsed >= 100:
+            self._pulse_count += 1
+            if self._pulse_count >= 3:
+                self.neutral()
+                return
+            self.set_angle(config.SERVO_RIGHT_TAP)
+            self._state = "DANGER_PULSE_MOVE"
+            self._phase_start = now
+            return
 
     def deinit(self):
         self._pwm.deinit()

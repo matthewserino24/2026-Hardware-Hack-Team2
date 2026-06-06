@@ -107,9 +107,11 @@ def run(max_iters=None):
                     servo.warning_pulse()
 
         if obstacle_state == DANGER:
-            servo.neutral()
-        elif not nav_route.complete:
+            pass
+        elif obstacle_state != WARNING and not nav_route.complete:
             nav_route.tick(imu.heading, servo)
+
+        servo.tick()
 
         if utime.ticks_diff(now, last_temp_ms) >= _TEMP_CADENCE_MS:
             last_temp_ms = now

@@ -121,6 +121,14 @@ class HT16K33:
         text = str(int(number))
         if len(text) == 1:
             self._draw_digit_glyph(text, 2, 1)
+        elif len(text) == 2 and text[0] == "-":
+            self._draw_digit_glyph("-", 0, 1)
+            self._draw_digit_glyph(text[1], 4, 1)
+        elif len(text) == 3 and text[0] == "-":
+            # Keep the sign for negative two-digit values such as -45.
+            self._draw_digit_glyph("-", 0, 1)
+            self._draw_digit_glyph(text[1], 3, 1)
+            self._draw_digit_glyph(text[2], 5, 1)
         else:
             self._draw_digit_glyph(text[-2], 0, 1)
             self._draw_digit_glyph(text[-1], 4, 1)

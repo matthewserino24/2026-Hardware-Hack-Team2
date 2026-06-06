@@ -38,6 +38,12 @@ float PID_Update(PID_t *pid, float target, float current)
 
     float error = target - current;
     pid->integral += error;
+    if (pid->ki > 0.0f)
+    {
+        float integral_limit_max = pid->output_max / pid->ki;
+        float integral_limit_min = pid->output_min / pid->ki;
+        pid->integral = clampf(pid->integral, integral_limit_min, integral_limit_max);
+    }
     float derivative = error - pid->prev_error;
     pid->prev_error = error;
 

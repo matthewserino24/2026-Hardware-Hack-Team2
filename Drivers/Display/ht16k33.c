@@ -222,10 +222,11 @@ Status_t HT16K33_DisplayNumber(int16_t number)
     else if (count == 3u)
     {
         /*
-         * Negative single digit: center the minus sign and the digit.
+         * Negative two-digit number: keep the sign and both digits visible.
          */
         ht16k33_draw_glyph(0u, 1u, ht16k33_find_glyph(digits[0]));
-        ht16k33_draw_glyph(4u, 1u, ht16k33_find_glyph(digits[1]));
+        ht16k33_draw_glyph(3u, 1u, ht16k33_find_glyph(digits[1]));
+        ht16k33_draw_glyph(5u, 1u, ht16k33_find_glyph(digits[2]));
     }
 
     return ht16k33_write_ram();
