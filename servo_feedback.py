@@ -106,7 +106,7 @@ def _angle_to_ns(deg):
         90°  → 1 450 000 ns (≈1.45 ms, close to the 1.5 ms centre)
         180° → 2 400 000 ns (2400 µs)
     """
-    deg = max(0, min(180, deg))
+    deg = max(0, min(180, int(deg)))
     return _PULSE_MIN_NS + (_PULSE_RANGE_NS * deg) // 180
 
 
