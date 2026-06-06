@@ -1,9 +1,9 @@
 """
 SG90 servo feedback driver.
 
-This merged version supports both:
-- the blocking `warning_pulse()` / `danger_pattern()` flow used by main.py
-- the non-blocking tap-style API from the local framework
+This merged version supports:
+- blocking feedback patterns used by the latest main branch
+- non-blocking tap helpers kept from the local framework branch
 """
 
 import utime
@@ -16,7 +16,9 @@ _TAP_HOLD_MS = 60
 
 def _angle_to_ns(deg):
     deg = max(0, min(180, int(deg)))
-    pulse_us = config.SG90_MIN_US + ((config.SG90_MAX_US - config.SG90_MIN_US) * deg) // 180
+    pulse_us = config.SG90_MIN_US + (
+        (config.SG90_MAX_US - config.SG90_MIN_US) * deg
+    ) // 180
     return pulse_us * 1000
 
 
@@ -24,7 +26,7 @@ class ServoFeedback:
     def __init__(self, pin):
         self._pin = Pin(pin) if isinstance(pin, str) else pin
         self._pwm = PWM(self._pin, freq=config.SG90_FREQ_HZ)
-        self._angle = config.SERVO_NEUTRAL
+        self._angle = float(config.SERVO_NEUTRAL)
         self._state = "IDLE"
         self._phase_start = utime.ticks_ms()
         self._tap_target = config.SERVO_NEUTRAL
@@ -70,11 +72,13 @@ class ServoFeedback:
         if distance_cm is None:
             self.neutral()
             return
+
         warn_ms = config.WARNING_TAP_INTERVAL_MS
         danger_ms = config.DANGER_TAP_INTERVAL_MS
         t = (75.0 - float(distance_cm)) / 35.0
         t = max(0.0, min(1.0, t))
         self._warn_interval_ms = int(warn_ms + t * (danger_ms - warn_ms))
+
         if self._state not in ("WARN_WAIT", "WARN_MOVE", "WARN_HOLD", "WARN_RETURN"):
             self._danger_side = 0
             self._state = "WARN_WAIT"
@@ -111,7 +115,10 @@ class ServoFeedback:
             return
 
         if self._state == "WARN_WAIT" and elapsed >= self._warn_interval_ms:
-            self.set_angle(config.SERVO_LEFT_TAP if self._danger_side == 0 else config.SERVO_RIGHT_TAP)
+            if self._danger_side == 0:
+                self.set_angle(config.SERVO_LEFT_TAP)
+            else:
+                self.set_angle(config.SERVO_RIGHT_TAP)
             self._danger_side ^= 1
             self._state = "WARN_MOVE"
             self._phase_start = now

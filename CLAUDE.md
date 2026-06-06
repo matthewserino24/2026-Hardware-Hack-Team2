@@ -4,54 +4,57 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Firmware for a wrist-mounted navigation aid built on a **NUCLEO-G474RE (STM32G4)** running **MicroPython**. A 50 Hz control loop reads heading from an MPU-6050 IMU and distance from an HC-SR04 ultrasonic sensor, advances a hardcoded waypoint route, and delivers turn-by-turn and obstacle guidance as haptic taps through an SG90 servo. The datasheets for every peripheral are committed as PDFs in the repo root.
+Firmware for a wrist-mounted navigation aid on a **NUCLEO-G474RE (STM32G4)** running **MicroPython**. A cadence-based main loop reads heading from an MPU-6050 IMU and distance from an HC-SR04 ultrasonic sensor, steers an SG90 servo toward a list of waypoints (proportional control), overrides with obstacle feedback when something is close, and shows status/temperature on an HT16K33 7-segment display. Peripheral datasheets are committed as PDFs in the repo root.
+
+> History note: the repo was once assembled by **concatenating** several `headless/*` agent branches, leaving every source file with two conflicting implementations glued together (and `main.py` not even compiling). That has been resolved — each module now holds a single coherent implementation (the "full demo" / Family A design). If you ever see a file with the same class defined twice, that regression has returned; run the test suite below.
 
 ## Running / testing
 
-There is **no build system, package manager, linter, or test suite** in this repo. Code runs directly on-device.
+There is no package manager or third-party test dependency. Two ways to exercise the code:
 
-- **On hardware:** copy the `.py` files to the board's filesystem (e.g. via `mpremote`/`rshell`/Thonny) and run `main.py`. `main.run()` is the entry point.
-- **On a host machine:** several modules import MicroPython-only built-ins (`machine`, `utime`, `const`, `PWM`, `time.ticks_ms`/`sleep_ms`) and will **not** import under CPython. [obstacle.py](obstacle.py) is intentionally pure-logic and is the cleanest to unit-test on the host (a `.pyc` for it already exists in `__pycache__/`). The standalone drivers `mpu6050.py`, `mcp9808.py`, and `ht16k33.py` import only `struct`/stdlib at module level, so they *import* under CPython, but exercising them needs a mock `machine.I2C` object.
+- **On hardware:** copy the `.py` files to the board and run `main.py`; `main.run()` is the entry point (loops forever). `run(max_iters=N)` runs a bounded number of iterations — used by the host harness.
+- **On your laptop (no board):** the firmware imports MicroPython-only APIs (`machine`, `utime`, `const`, `time.ticks_ms`), so it cannot run under CPython directly. [tests/mockhw.py](tests/mockhw.py) fakes those (I2C/Pin/PWM/`time_pulse_us`, the tick clock, and the `const()` builtin) well enough that constructors and the main loop run. Then:
 
-When adding host-testable logic, keep it free of `machine`/`utime` imports like `obstacle.py` does.
+  ```
+  python3 tests/test_vet.py     # 14 unit + integration tests (boots main, runs the loop)
+  python3 tests/demo_run.py     # smoke demo: boots + runs 400 loop iters, prints display/servo activity
+  ```
+
+  The harness mock I2C returns identity bytes that satisfy each driver's self-check (MPU-6050 `WHO_AM_I`, MCP9808 manufacturer/device IDs). `mockhw.set_sim_distance_cm()` injects an obstacle distance; `mockhw.set_auto_advance_ms()` makes the tick clock advance so the cadence loop progresses without real sleeps.
+
+  When adding host-testable logic, keep it free of `machine`/`utime` imports where possible (like [obstacle.py](obstacle.py), which is pure logic) so it can be unit-tested directly.
 
 ## Architecture
 
-Single-threaded, no RTOS, no interrupts sharing state. [main.py](main.py) `run()` does: init hardware → calibrate IMU (hold still ~2 s) → `Route().reset()` → loop forever at `LOOP_PERIOD_MS` (20 ms). Each tick: `imu.update()` → `detector.is_blocked()` → `route.tick(heading, now)` → drive servo from the returned intent → `servo.tick()` → pace to 20 ms.
+[main.py](main.py) `startup()` initialises peripherals in dependency order (I2C → display → temp → IMU+calibrate → sonar → servo → zero heading → load `_WAYPOINTS`) and returns the 7 objects. `run()` is a **non-blocking, cadence-based** loop (no `sleep` in the loop body; each task fires on its own `ticks_diff` interval):
 
-The pipeline of modules, each mapped to a functional requirement (FR):
+- **every iteration** — IMU update (integrate gyro-Z over measured `dt`); route tick (proportional steer toward current waypoint) unless in DANGER.
+- **≥60 ms** — HC-SR04 read → `ObstacleDetector.update()`; on a state *transition* fire `servo.warning_pulse()` / `servo.danger_pattern()` (these are short *blocking* sweeps).
+- **500 ms** — MCP9808 temperature read + display update (status text overrides temperature: `dAnG` / `WArn` / `donE`, else the temperature).
 
-- **[imu.py](imu.py)** (FR1) — `IMU` class. MPU-6050 over I2C1. `calibrate()` measures gyro-Z bias while stationary; `update(now_ms)` integrates bias-corrected gyro-Z into a yaw heading wrapped to `(-180, 180]`; `heading()` returns it. Positive = clockwise/right turn. Verifies `WHO_AM_I == 0x68` on construction.
-- **[ultrasonic.py](ultrasonic.py)** (FR2) — `Ultrasonic` class. HC-SR04 driver. `read_raw_cm()` fires one ping; `read_cm()` returns a rolling average over `SMOOTHING_WINDOW` valid readings. Invalid/timeout reads return `None` and are dropped, never zeroed.
-- **[obstacle.py](obstacle.py)** (FR3) — pure function `obstacle_state(distance_cm)` → `CLEAR` / `WARNING` / `DANGER` by distance thresholds. `None` (missed echo) maps to `CLEAR` to avoid false alarms. `DANGER` is checked first so the boundary value resolves to the more urgent state.
-- **[route.py](route.py)** (FR4/FR5) — `Route` state machine over the hardcoded `route` list of waypoints (`STRAIGHT` advances on elapsed time; `TURN_LEFT`/`TURN_RIGHT` tap until heading is within `HEADING_TOLERANCE_DEG` of target; `FINISH` is terminal). `tick()` returns a servo *intent*: `NEUTRAL` / `TAP_LEFT` / `TAP_RIGHT` / `FINISHED`. The route is hardcoded here — edit the `route` list to change the path.
-- **[servo_feedback.py](servo_feedback.py)** (FR6) — `ServoFeedback` class. Non-blocking 12-state machine driving the SG90 via `duty_ns` PWM. Methods (`tap_left/right`, `warning_pattern`, `danger_pattern`, `neutral`) only update state and return immediately; **`tick()` is the only method that moves the servo** and must be polled at least every ~60 ms. No `sleep` anywhere — safe to call from a timer ISR.
+Modules and their roles:
 
-Data flow is one-directional: sensors → classifiers/state machine → intent → servo. Modules communicate through plain return values and string constants; there is no shared mutable state between them.
+- **[imu.py](imu.py)** — `IMU`, a thin heading-integration wrapper **over [mpu6050.py](mpu6050.py)**. `calibrate()` measures gyro-Z bias at rest; `update(dt_s)` accumulates an **unbounded** heading (degrees); `heading` is a property; `zero_heading()` re-references. Note `update()` takes an already-differenced `dt_s` (seconds), not an absolute tick count.
+- **[mpu6050.py](mpu6050.py)** — low-level MPU-6050 driver (`accel`/`gyro`/`temperature`/`read_all`). `imu.py` builds on it.
+- **[ultrasonic.py](ultrasonic.py)** — `HCSR04` driver with a 3-sample median filter; `distance_cm()` returns filtered cm or `None` on timeout.
+- **[obstacle.py](obstacle.py)** — `ObstacleDetector`, a **hysteretic** state machine returning the integer constants `CLEAR`/`WARNING`/`DANGER` (0/1/2) with separate entry/exit thresholds so it doesn't chatter at a boundary. A `None` reading **holds** the current state (fail-safe). Pure logic, no hardware imports.
+- **[route.py](route.py)** — `Route` over a list of `Waypoint(heading, label)`. `tick(imu_heading, servo)` steers proportionally (`_KP`, clamped to `_MAX_STEER_DEG`) using the **wrap-aware** `_heading_error` (shortest signed arc on the ±180° circle), and advances when the heading holds within `arrival_threshold_deg` for `arrival_hold_ms`. `complete` is a property.
+- **[servo_feedback.py](servo_feedback.py)** — `ServoFeedback`: `set_angle`/`neutral`/`steer` plus the blocking `warning_pulse()` and `danger_pattern()` feedback sweeps. `_angle_to_ns` centres on 1500 µs with a symmetric ±950000 ns swing (so ±90° → 550000/2450000 ns, slightly inside the datasheet 500/2400 µs endpoints — fine for the small haptic deflections used).
+- **[mcp9808.py](mcp9808.py)** — `MCP9808` temperature sensor (0x18). **[ht16k33.py](ht16k33.py)** — `HT16K33` 4-digit 7-segment display driver (0x70), `print_str`/`print_float`/`show`. Both are wired into `main`.
 
-### Standalone peripheral drivers (not wired into the main loop)
+Data flow is one-directional: sensors → classifier/state machine → servo + display. The three I2C devices (0x68/0x18/0x70) share I2C1 (PB8/PB9) and don't collide.
 
-Three generic I2C drivers exist but are **not imported by `main.py`** — they are reusable building blocks / for additional peripherals, with their own `__init__(i2c, ...)` signatures and `WHO_AM_I`/ID checks:
+## config.py — gotcha
 
-- **[mpu6050.py](mpu6050.py)** — generic `MPU6050` driver exposing raw `accel()` / `gyro()` / `temperature()` / `read_all()`. **Do not confuse this with [imu.py](imu.py).** `imu.py`'s `IMU` class is the navigation-specific driver actually used by the main loop: it adds gyro-bias calibration and integrates gyro-Z into a wrapped yaw `heading()`. `mpu6050.py` is a lower-level, stateless driver. If asked to change "the IMU," confirm which one — heading/route behavior lives in `imu.py`.
-- **[mcp9808.py](mcp9808.py)** — `MCP9808` temperature sensor (address 0x18), with `temperature()`, resolution control, and shutdown/wake.
-- **[ht16k33.py](ht16k33.py)** — `HT16K33` driver for an Adafruit 4-digit 7-segment backpack (address 0x70): `print_str` / `print_int` / `print_float` / raw `set_digit`, with a shadow RAM buffer pushed on `show()`.
-
-These three take an externally-constructed `machine.I2C` and would share I2C1 (0x68 / 0x18 / 0x70 don't collide) if integrated. Unlike `imu.py`/`ultrasonic.py`/`servo_feedback.py`, they read their config from constructor arguments rather than `config.py`.
-
-## config.py — important gotcha
-
-[config.py](config.py) is the single source of tunable constants — modules import only the names they need and avoid magic numbers. **However, the file currently contains several duplicated/conflicting definitions** of the same constant (e.g. `SERVO_PIN`, `WARNING_DISTANCE_CM`, `I2C_BUS`, the various `SERVO_*` and tap-interval constants appear multiple times, and there is a stray triple-quoted docstring partway through). In Python the **last assignment wins**, so when changing a value, search the whole file and edit the *final* occurrence — or you'll edit a line that gets overwritten lower down. Consolidating these duplicates is a reasonable cleanup if asked.
-
-Pin/address reference lives in the comments of `config.py` (Arduino-header pin names like `D7`/`PA8`, I2C addresses `0x68`/`0x18`/`0x70`).
+[config.py](config.py) holds tunable constants, but it **still contains many duplicated definitions** of the same name (e.g. `SERVO_*`, `WARNING_DISTANCE_CM`, `I2C_BUS`, plus a stray triple-quoted block). Python's last-assignment-wins means the duplicates currently agree on values, but when changing one, search the whole file and edit the **final** occurrence or your edit is silently overwritten. Only `main.py` reads config (pin/address constants); the driver modules take their parameters via constructor args. Consolidating these duplicates is a safe, worthwhile cleanup.
 
 ## Hardware constraints to respect in code
 
-- **HC-SR04 Echo is 5 V** — the wiring requires a resistor divider to the 3.3 V STM32 GPIO (noted in `ultrasonic.py`). Don't assume direct connection.
+- **HC-SR04 Echo is 5 V** — wiring needs a resistor divider down to the 3.3 V STM32 GPIO (see [ultrasonic.py](ultrasonic.py) header). Don't assume a direct connection.
 - **SG90 needs the 5 V rail**, not 3.3 V (stalls below ~4.8 V).
-- Heading and turn-completion math is **wrap-aware** on `(-180, 180]`; reuse `_wrap180` / `_heading_error` rather than naive subtraction.
-- Loop timing is interdependent: `LOOP_PERIOD_MS` (20 ms) matches `IMU_SAMPLE_INTERVAL_MS` and the MPU-6050 `SMPLRT_DIV` (50 Hz) set in `imu._configure()`. Changing one may require changing the others.
+- The `warning_pulse()`/`danger_pattern()` sweeps **block** the loop (~300/600 ms) for the duration of the sweep; they only fire on a state transition, so the loop stalls briefly when entering WARNING/DANGER. Keep that in mind before adding latency-sensitive work.
+- `imu.heading` is unbounded (never wraps); route arithmetic is made wrap-safe by `route._heading_error`, so reuse it rather than naive subtraction.
 
 ## Workflow
 
-Development happens via per-FR feature branches that merge into `main` (see git history: `headless/<id>/implement-the-<feature>`). Each module is owned independently and depends only on the documented public API of the others, not their internals.
+Development happened via per-FR `headless/*` branches merged into `main`. After the de-concatenation, the canonical implementation is the single version now on `main`; the old per-FR branch snapshots correspond to the simpler "FR" design (hardcoded route + tap feedback) and are not what `main` runs.

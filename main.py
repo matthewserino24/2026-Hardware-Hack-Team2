@@ -1,8 +1,8 @@
 """
 Main MicroPython entry point for the ZH base hardware framework demo.
 
-This keeps the remote main-branch startup flow and application logic, while
-using the cleaned-up driver modules.
+This keeps the remote main-branch startup flow and application logic while
+using the cleaned-up driver modules from this branch.
 """
 
 import utime
@@ -12,10 +12,10 @@ import config
 from ht16k33 import HT16K33
 from mcp9808 import MCP9808
 from imu import IMU
-from ultrasonic import HCSR04
 from obstacle import CLEAR, DANGER, WARNING, ObstacleDetector
 from route import Route, Waypoint
 from servo_feedback import ServoFeedback
+from ultrasonic import HCSR04
 
 _SONAR_CADENCE_MS = 60
 _TEMP_CADENCE_MS = 500
@@ -62,7 +62,16 @@ def startup():
     return display, temp_sensor, imu, sonar, ObstacleDetector(), servo, nav_route
 
 
-def run():
+def run(max_iters=None):
+    """
+    Main non-blocking event loop.
+
+    Parameters
+    ----------
+    max_iters : int or None
+        Run forever when None. When set, stop after the requested number of
+        iterations. This is useful for host-side testing.
+    """
     display, temp_sensor, imu, sonar, detector, servo, nav_route = startup()
 
     last_sonar_ms = utime.ticks_ms() - _SONAR_CADENCE_MS
@@ -71,7 +80,9 @@ def run():
     obstacle_state = CLEAR
     last_temp_c = 0.0
 
-    while True:
+    iters = 0
+    while max_iters is None or iters < max_iters:
+        iters += 1
         now = utime.ticks_ms()
 
         dt_ms = utime.ticks_diff(now, last_imu_ms)
