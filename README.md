@@ -23,7 +23,7 @@
 -
 
 ## External Devices & Sensors
--
+-[IMU] MPU-6050 6-axis IMU — 3-axis gyroscope + 3-axis accelerometer
 
 ## Communication Protocols
 - **Protocol (e.g. CAN, UART, SPI, I2C)**:
